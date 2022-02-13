@@ -22,16 +22,16 @@ contract BaseStrat is Ownable {
     IUniswapRouter public router;
     address public zun;
 
-    uint256 public constant DENOMINATOR = 1e18;
-    uint256 public constant USD_MULTIPLIER = 1e12;
-    uint256 public minDepositAmount = 9975; // 99.75%
-    uint256 public constant DEPOSIT_DENOMINATOR = 10000;
-    address public constant BUYBACK_ADDRESS = 0x000000000000000000000000000000000000dEaD;
+    uint256 public constant DENOMINATOR = 1e18; //TODO: переименовать - не ясно назначение - насколько я вижу это Curve ценовой множитель
+    uint256 public constant USD_MULTIPLIER = 1e12; //TODO: удалить!
+    uint256 public minDepositAmount = 9975; // 99.75% //TODO: minDepositFee ?
+    uint256 public constant DEPOSIT_DENOMINATOR = 10000; //TODO: DEPOSIT_FEE_DENOMINATOR ?
+    address public constant BUYBACK_ADDRESS = 0x000000000000000000000000000000000000dEaD; //TODO: может BURN_ZUN_ADDRESS
 
-    address public usdt;
-    uint256 public managementFees = 0;
+    address public usdt; //TODO: сделать USDT нулевым токеном в tokens и использовать его от туда, предполагая что пути обмена сделаны под этот токен
+    uint256 public managementFees = 0; //TODO: managementFeeAmount - вроде везде где процет просто Fee, а где расчитанная сумма по Fee это Amount
     uint256 public buybackFee = 0;
-    uint256 public zunamiLpInStrat = 0;
+    uint256 public zunamiLpInStrat = 0; //TODO: перенести учет пошареных LP токенов относительн остратегии в оснвном протоколе
 
     address[] cvxToUsdtPath;
     address[] crvToUsdtPath;
@@ -52,11 +52,11 @@ contract BaseStrat is Ownable {
         crv = IERC20Metadata(Constants.CRV_ADDRESS);
         cvx = IConvexMinter(Constants.CVX_ADDRESS);
         router = IUniswapRouter(Constants.SUSHI_ROUTER_ADDRESS);
-        usdt = Constants.USDT_ADDRESS;
+        usdt = Constants.USDT_ADDRESS; //TODO: не делать отдельным токеном
         tokens[0] = Constants.DAI_ADDRESS;
         tokens[1] = Constants.USDC_ADDRESS;
-        tokens[2] = Constants.USDT_ADDRESS;
-        crvToUsdtPath = [Constants.CRV_ADDRESS, Constants.WETH_ADDRESS, Constants.USDT_ADDRESS];
+        tokens[2] = Constants.USDT_ADDRESS; //TODO: сделать нулевым токенов
+        crvToUsdtPath = [Constants.CRV_ADDRESS, Constants.WETH_ADDRESS, Constants.USDT_ADDRESS]; //TODO: последним иметь нулевой токен
         cvxToUsdtPath = [Constants.CVX_ADDRESS, Constants.WETH_ADDRESS, Constants.USDT_ADDRESS];
     }
 
@@ -75,7 +75,7 @@ contract BaseStrat is Ownable {
         uint256 usdtBalanceBefore = IERC20Metadata(usdt).balanceOf(address(this));
         router.swapExactTokensForTokens(
             cvxBalance,
-            0,
+            0, //TODO: HIGH вознаграждение продается с бесконечным слипаджем. в случае обкешивания большого количества награды будет активно использоваться MEV атака
             cvxToUsdtPath,
             address(this),
             block.timestamp + Constants.TRADE_DEADLINE
@@ -101,11 +101,11 @@ contract BaseStrat is Ownable {
      */
     function claimManagementFees() public virtual onlyZunami {
         uint256 stratBalance = IERC20Metadata(usdt).balanceOf(address(this));
-        uint256 transferBalance = managementFees > stratBalance ? stratBalance : managementFees;
+        uint256 transferBalance = managementFees > stratBalance ? stratBalance : managementFees; //TODO: почему накопленная комиссия может стать меньше текущего баланса в базовом токене?
         if (transferBalance > 0) {
             uint256 zunBuybackAmount = (transferBalance * buybackFee) / DEPOSIT_DENOMINATOR;
             uint256 adminFeeAmount = (transferBalance * (DEPOSIT_DENOMINATOR - buybackFee)) /
-                DEPOSIT_DENOMINATOR;
+                DEPOSIT_DENOMINATOR; //TODO: adminFeeAmount = adminFeeAmount - zunBuybackAmount - лишнее вычисление
             if (adminFeeAmount > 0) {
                 IERC20Metadata(usdt).safeTransfer(owner(), adminFeeAmount);
             }
@@ -117,7 +117,7 @@ contract BaseStrat is Ownable {
                 path[2] = zun;
                 router.swapExactTokensForTokens(
                     zunBuybackAmount,
-                    0,
+                    0, //TODO: HIGH MEV слипадж. перед каждой покупкой надо оценивать цену и поверх нее давать не более 5% слипаджа
                     path,
                     BUYBACK_ADDRESS,
                     block.timestamp + Constants.TRADE_DEADLINE
@@ -166,7 +166,7 @@ contract BaseStrat is Ownable {
      * @dev dev set Zunami (main contract) address
      * @param zunamiAddr - address of main contract (Zunami)
      */
-    function setZunami(address zunamiAddr) external onlyOwner {
+    function setZunami(address zunamiAddr) external onlyOwner { //TODO: почему не в конструкторе?
         zunami = IZunami(zunamiAddr);
     }
 
@@ -176,7 +176,7 @@ contract BaseStrat is Ownable {
      * @param _amount - amount of minted/burned lpShares
      * @param _isMint - withdraw = false, deposit = true
      */
-    function updateZunamiLpInStrat(uint256 _amount, bool _isMint) external onlyZunami {
+    function updateZunamiLpInStrat(uint256 _amount, bool _isMint) external onlyZunami { //TODO: ответсвенность протокола вести учет внутри себя, а не в каждйо стратегии отдельно
         _isMint ? (zunamiLpInStrat += _amount) : (zunamiLpInStrat -= _amount);
     }
 }

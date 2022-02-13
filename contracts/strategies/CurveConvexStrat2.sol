@@ -28,13 +28,13 @@ contract CurveConvexStrat2 is Context, BaseStrat {
     ICurvePool2 public pool;
     IERC20Metadata public pool3LP;
     IERC20Metadata public poolLP;
-    IERC20Metadata public token;
+    IERC20Metadata public token; //TODO: basePoolToken
     IUniswapV2Pair public crvweth;
     IUniswapV2Pair public wethcvx;
     IUniswapV2Pair public wethusdt;
     IConvexBooster public booster;
     IConvexRewards public crvRewards;
-    IERC20Metadata public extraToken;
+    IERC20Metadata public extraToken; //TODO: extraRewardToken
     IConvexRewards public extraRewards;
     uint256 public cvxPoolPID;
 
@@ -60,7 +60,7 @@ contract CurveConvexStrat2 is Context, BaseStrat {
         token = IERC20Metadata(tokenAddr);
         extraToken = IERC20Metadata(extraTokenAddr);
         extraRewards = IConvexRewards(extraRewardsAddr);
-        if (extraTokenAddr != address(0)) {
+        if (extraTokenAddr != address(0)) { //TODO: далее идет одинаковый код для Strat2 и Strat4
             extraToken = IERC20Metadata(extraTokenAddr);
             extraTokenSwapPath = [extraTokenAddr, Constants.WETH_ADDRESS, Constants.USDT_ADDRESS];
         }
@@ -71,7 +71,7 @@ contract CurveConvexStrat2 is Context, BaseStrat {
                 decimalsMultiplierS[i] = 1;
             }
         }
-        if (token.decimals() < 18) {
+        if (token.decimals() < 18) { //TODO: сделать метод в протоколе - calcTokenDecimalsMultiplier() - возвращать нужный децимал
             decimalsMultiplierS[3] = 10**(18 - token.decimals());
         } else {
             decimalsMultiplierS[3] = 1;
@@ -92,18 +92,18 @@ contract CurveConvexStrat2 is Context, BaseStrat {
      * return amount is lpBalance x lpPrice + cvx x cvxPrice + crv * crvPrice + extraToken * extraTokenPrice.
      * @return Returns total USD holdings in strategy
      */
-    function totalHoldings() public view virtual returns (uint256) {
-        uint256 lpBalance = (crvRewards.balanceOf(address(this)) * pool.get_virtual_price()) /
+    function totalHoldings() public view virtual returns (uint256) { //TODO: единый метод Strat2 и Strat4
+        uint256 lpBalance = (crvRewards.balanceOf(address(this)) * pool.get_virtual_price()) / //TODO: lpBalance -> crvLpValue
             DENOMINATOR;
         uint256 cvxHoldings = 0;
         uint256 crvHoldings = 0;
         uint256 extraHoldings = 0;
         uint256[] memory amounts;
-        uint256 crvErned = crvRewards.earned(address(this));
+        uint256 crvErned = crvRewards.earned(address(this)); //TODO: cvxCrvEarned
         uint256 cvxTotalCliffs = cvx.totalCliffs();
 
         uint256 amountIn = (crvErned *
-            (cvxTotalCliffs - cvx.totalSupply() / cvx.reductionPerCliff())) /
+            (cvxTotalCliffs - cvx.totalSupply() / cvx.reductionPerCliff())) / //TODO: uint256 remainingCliffs = cvxTotalCliffs - cvx.totalSupply() / cvx.reductionPerCliff() - выделить для читабельности кода
             cvxTotalCliffs +
             cvx.balanceOf(address(this));
         if (amountIn > 0) {
@@ -148,7 +148,7 @@ contract CurveConvexStrat2 is Context, BaseStrat {
         uint256 amountsMin = (_amountsTotal * minDepositAmount) / DEPOSIT_DENOMINATOR;
         uint256 lpPrice = pool3.get_virtual_price();
         uint256 depositedLp = pool3.calc_token_amount(amounts, true);
-        if ((depositedLp * lpPrice) / 1e18 >= amountsMin) {
+        if ((depositedLp * lpPrice) / 1e18 >= amountsMin) { //TODO: DENOMINATOR
             for (uint256 i = 0; i < 3; i++) {
                 IERC20Metadata(tokens[i]).safeIncreaseAllowance(address(pool3), amounts[i]);
             }
@@ -240,7 +240,7 @@ contract CurveConvexStrat2 is Context, BaseStrat {
 
         router.swapExactTokensForTokens(
             extraBalance,
-            0,
+            0, //TODO: MEV
             extraTokenSwapPath,
             address(this),
             block.timestamp + Constants.TRADE_DEADLINE

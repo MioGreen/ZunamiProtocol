@@ -26,46 +26,46 @@ import './interfaces/IStrategy.sol';
 contract Zunami is Context, Ownable, ERC20 {
     using SafeERC20 for IERC20Metadata;
 
-    struct PendingDeposit {
-        uint256[3] amounts;
-        address depositor;
+    struct PendingDeposit {  //TODO: может лучше DepositRequest ?
+        uint256[3] amounts; //TODO: сложно расширять новыми ативами - перейти безразмерное хранилище потенциальных валют
+        address depositor; //TODO: добавить indexed для быстрого поиска по депозиторам
     }
 
-    struct PendingWithdrawal {
+    struct PendingWithdrawal { //TODO: может лучше WithdrawalRequest ?
         uint256 lpAmount;
         uint256[3] minAmounts;
-        address withdrawer;
+        address withdrawer; //TODO: добавить indexed для быстрого поиска по депозиторам
     }
 
-    struct PoolInfo {
+    struct PoolInfo { //TODO: перенести сюда LP долю пула и запрашивать из каждой стратегии при расчетах пропорции
         IStrategy strategy;
         uint256 startTime;
     }
 
-    uint8 private constant POOL_ASSETS = 3;
+    uint8 private constant POOL_ASSETS = 3; //TODO: перейти на неограниченный массив
 
-    address[POOL_ASSETS] public tokens;
+    address[POOL_ASSETS] public tokens; //TODO: хранить в виде безразмерного массива со стркутурой Token (address, uint8)
     uint256[POOL_ASSETS] public decimalsMultiplierS;
-    mapping(address => uint256) public deposited;
+    mapping(address => uint256) public deposited; //TODO: так как тут USD я бы назвал depositedValue
     // Info of each pool
     PoolInfo[] public poolInfo;
-    uint256 public totalDeposited;
+    uint256 public totalDeposited; //TODO: так как тут USD я бы назвал totalDepositedValue
 
     uint256 public constant FEE_DENOMINATOR = 1000;
     uint256 public managementFee = 10; // 1%
-    bool public isLock = false;
-    uint256 public constant MIN_LOCK_TIME = 1 days;
+    bool public isLock = false; //TODO: openzeppelin Pausable ?
+    uint256 public constant MIN_LOCK_TIME = 1 days; //TODO: STRATEGY_START_DELAY
 
     mapping(address => uint256[3]) public accDepositPending;
     mapping(address => PendingWithdrawal) public pendingWithdrawals;
 
-    event PendingDepositEvent(address depositor, uint256[3] amounts);
-    event PendingWithdrawEvent(address withdrawer, uint256[3] amounts);
+    event PendingDepositEvent(address depositor, uint256[3] amounts); //TODO: добавить индексы на все адреса
+    event PendingWithdrawEvent(address withdrawer, uint256[3] amounts); //TODO: Event на конце избыточен - CreatedPendingWithdraw или CreatedWithdrawRequest
     event Deposited(address depositor, uint256[3] amounts, uint256 lpShares);
     event Withdrawn(address withdrawer, uint256[3] amounts, uint256 lpShares);
-    event AddStrategy(address strategyAddr);
-    event BadDeposit(address depositor, uint256[3] amounts, uint256 lpShares);
-    event BadWithdraw(address withdrawer, uint256[3] amounts, uint256 lpShares);
+    event AddStrategy(address strategyAddr); //TODO: AddedPool, если мы используем термин PoolInfo; также добавить в событие время начала работы пула
+    event BadDeposit(address depositor, uint256[3] amounts, uint256 lpShares); //TODO: FailedDeposit или FailedDepositRequest
+    event BadWithdraw(address withdrawer, uint256[3] amounts, uint256 lpShares); //TODO: FailedWithdraw или FailedWithdrawRequest
 
     /**
      * @dev Throws if called by any account other than the owner.
@@ -81,12 +81,12 @@ contract Zunami is Context, Ownable, ERC20 {
     }
 
     constructor() ERC20('ZunamiLP', 'ZLP') {
-        tokens[0] = Constants.DAI_ADDRESS;
+        tokens[0] = Constants.DAI_ADDRESS; //TODO: почему не передаются через конструктор? Как переходить на другой чейн?
         tokens[1] = Constants.USDC_ADDRESS;
         tokens[2] = Constants.USDT_ADDRESS;
-        for (uint256 i; i < POOL_ASSETS; i++) {
-            if (IERC20Metadata(tokens[i]).decimals() < 18) {
-                decimalsMultiplierS[i] = 10**(18 - IERC20Metadata(tokens[i]).decimals());
+        for (uint256 i; i < POOL_ASSETS; i++) { //TODO: если базовые активы это кностанты, то их децималы тоже константы
+            if (IERC20Metadata(tokens[i]).decimals() < 18) { //TODO: сохранить значение в локальную переменную, чтобы не запрашивать дважды
+                decimalsMultiplierS[i] = 10**(18 - IERC20Metadata(tokens[i]).decimals()); //TODO: revert если decimals > 18
             } else {
                 decimalsMultiplierS[i] = 1;
             }
@@ -113,13 +113,13 @@ contract Zunami is Context, Ownable, ERC20 {
     }
 
     /**
-     * @dev Returns commission total holdings for all pools (strategy's)
+     * @dev Returns commission total holdings for all pools (strategy's) //TODO: почему commission ?
      * @return Returns sum holdings (USD) for all pools
      */
     function totalHoldings() public view returns (uint256) {
-        uint256 length = poolInfo.length;
+        uint256 length = poolInfo.length; //TODO: inline variable - тут отдельная переменная не имеет смысла
         uint256 totalHold = 0;
-        for (uint256 pid = 0; pid < length; pid++) {
+        for (uint256 pid = 0; pid < length; pid++) { //TODO: в случае большого количества одновременно запущенных стратегий расчет может не войти в блок
             totalHold += poolInfo[pid].strategy.totalHoldings();
         }
         return totalHold;
@@ -127,7 +127,7 @@ contract Zunami is Context, Ownable, ERC20 {
 
     /**
      * @dev Returns price depends on the income of users
-     * @return Returns currently price of ZLP (1e18 = 1$)
+     * @return Returns currently price of ZLP (1e18 = 1$) //TODO: 1e18 = 1 ZUNAMI LP TOKEN - доллар тут непричем - мы же долларовый эквивалент делим на дробное представление количеста LP токенов
      */
     function lpPrice() external view returns (uint256) {
         return (totalHoldings() * 1e18) / totalSupply();
@@ -137,7 +137,7 @@ contract Zunami is Context, Ownable, ERC20 {
      * @dev Returns number (length of poolInfo)
      * @return Returns number (length of poolInfo)
      */
-    function poolInfoLength() external view returns (uint256) {
+    function poolInfoLength() external view returns (uint256) { //TODO: getPoolCount - снаружи протокола нет понятия PoolInfo, а есть понятие Пула как запущеной стратегии
         return poolInfo.length;
     }
 
@@ -145,7 +145,7 @@ contract Zunami is Context, Ownable, ERC20 {
      * @dev in this func user sends funds to the contract and then waits for the completion of the transaction for all users
      * @param amounts - array of deposit amounts by user
      */
-    function delegateDeposit(uint256[3] memory amounts) external isNotLocked {
+    function delegateDeposit(uint256[3] memory amounts) external isNotLocked { //TODO: delegateDeposit -> requestDeposit
         for (uint256 i = 0; i < amounts.length; i++) {
             if (amounts[i] > 0) {
                 IERC20Metadata(tokens[i]).safeTransferFrom(_msgSender(), address(this), amounts[i]);
@@ -161,8 +161,8 @@ contract Zunami is Context, Ownable, ERC20 {
      * @param  lpAmount - amount of ZLP for withdraw
      * @param minAmounts - array of amounts stablecoins that user want minimum receive
      */
-    function delegateWithdrawal(uint256 lpAmount, uint256[3] memory minAmounts) external {
-        PendingWithdrawal memory user;
+    function delegateWithdrawal(uint256 lpAmount, uint256[3] memory minAmounts) external { //TODO: delegateWithdrawal -> requestWithdrawal
+        PendingWithdrawal memory user; //TODO: переименовать в withdrawal - не понял почему PendingWithdrawal везде называется user
         address userAddr = _msgSender();
 
         user.lpAmount = lpAmount;
@@ -179,24 +179,23 @@ contract Zunami is Context, Ownable, ERC20 {
      * @param userList - dev send array of users from pending to complete
      * @param pid - number of the pool to which the deposit goes
      */
-    function completeDeposits(address[] memory userList, uint256 pid)
+    function completeDeposits(address[] memory userList, uint256 pid) //TODO: может ли данная функция обрабатывать по частям список пользователей?
         external
         onlyOwner
         isStrategyStarted(pid)
     {
-        IStrategy strategy = poolInfo[pid].strategy;
+        IStrategy strategy = poolInfo[pid].strategy; //TODO: исключение елси стратегия не существует
         uint256[3] memory totalAmounts;
         // total sum deposit, contract => strategy
-        uint256 addHoldings = 0;
-        uint256 completeAmount = 0;
-        uint256 holdings = totalHoldings();
-        uint256[] memory userCompleteHoldings = new uint256[](userList.length);
+        uint256 addHoldings = 0; //TODO: newHoldings
+        uint256 completeAmount = 0; //TODO: лишняя переменная, для расчетов пользовательских нолдингов можно использовать переменную выше
+        uint256[] memory userCompleteHoldings = new uint256[](userList.length); //TODO: userNewHoldings
 
         for (uint256 i = 0; i < userList.length; i++) {
             completeAmount = 0;
 
             for (uint256 x = 0; x < totalAmounts.length; x++) {
-                totalAmounts[x] += accDepositPending[userList[i]][x];
+                totalAmounts[x] += accDepositPending[userList[i]][x]; //TODO: local variable - выделить получение текущего депозита пользователя по токену в локальну переменную
                 completeAmount += accDepositPending[userList[i]][x] * decimalsMultiplierS[x];
             }
             userCompleteHoldings[i] = completeAmount;
@@ -208,29 +207,28 @@ contract Zunami is Context, Ownable, ERC20 {
                 IERC20Metadata(tokens[y]).safeTransfer(address(strategy), totalAmounts[y]);
             }
         }
-        uint256 sum = strategy.deposit(totalAmounts);
-        require(sum > 0, 'too low amount!');
+        uint256 holdings = totalHoldings(); //TODO: currentHoldings
+        uint256 sum = strategy.deposit(totalAmounts); //TODO: при чем тут sum? это же newDepositedValue в USD
+        require(sum > 0, 'too low amount!'); //TODO: привести все require к формату 'Zunami: ошибка'
         uint256 lpShares = 0;
         uint256 changedHoldings = 0;
         uint256 currentUserAmount = 0;
         address userAddr;
 
         for (uint256 z = 0; z < userList.length; z++) {
-            currentUserAmount = (sum * userCompleteHoldings[z]) / addHoldings;
             userAddr = userList[z];
-            deposited[userAddr] += currentUserAmount;
-            changedHoldings += currentUserAmount;
+            currentUserAmount = (sum * userCompleteHoldings[z]) / addHoldings; //TODO: userDepositedValue
             if (totalSupply() == 0) {
                 lpShares = currentUserAmount;
             } else {
-                lpShares =
-                    (currentUserAmount * totalSupply()) /
-                    (holdings + changedHoldings - currentUserAmount);
+                lpShares = (currentUserAmount * totalSupply()) / (holdings + changedHoldings); //TODO: убрал лишнее вычитание за счет обновления changedHoldings после расчета пологающихся LP токенов
             }
             _mint(userAddr, lpShares);
-            strategy.updateZunamiLpInStrat(lpShares, true);
+            strategy.updateZunamiLpInStrat(lpShares, true); //TODO: баланс лучше перенести сюда в PoolInfo
+            deposited[userAddr] += currentUserAmount;
+            changedHoldings += currentUserAmount;
             // remove deposit from list
-            delete accDepositPending[userAddr];
+            delete accDepositPending[userAddr]; //TODO: MEDIUM пропущено событие Deposited
         }
         totalDeposited += changedHoldings;
     }
@@ -254,18 +252,18 @@ contract Zunami is Context, Ownable, ERC20 {
             user = pendingWithdrawals[userList[i]];
             uint256 balance = balanceOf(user.withdrawer);
 
-            if (balance >= user.lpAmount && user.lpAmount > 0) {
+            if (balance >= user.lpAmount && user.lpAmount > 0) { //TODO: разве можно создать запрос на нулевой вывод и как запрос на вывод может быть больше чем баланс пользователя? Проверить в момент создания запроса на вывод
                 if (!(strategy.withdraw(user.withdrawer, user.lpAmount, user.minAmounts))) {
-                    emit BadWithdraw(user.withdrawer, user.minAmounts, user.lpAmount);
+                    emit BadWithdraw(user.withdrawer, user.minAmounts, user.lpAmount); //TODO: event FailedWithdraw
 
-                    return;
+                    return; //TODO: почему не крешимся? Почему не обратбатываем другие запросы на вывод? если мы выходим то этот запрос на выдо так и останется висеть тут навсегда
                 }
 
                 uint256 userDeposit = (totalDeposited * user.lpAmount) / totalSupply();
                 _burn(user.withdrawer, user.lpAmount);
                 strategy.updateZunamiLpInStrat(user.lpAmount, false);
 
-                if (userDeposit > deposited[user.withdrawer]) {
+                if (userDeposit > deposited[user.withdrawer]) { //TODO: выглядит странно, что мы получаем меньше, чем задепозитили в баксе и у нас в totalDeposited останется эта разница
                     userDeposit = deposited[user.withdrawer];
                 }
 
@@ -285,13 +283,13 @@ contract Zunami is Context, Ownable, ERC20 {
      * @param amounts - user send amounts of stablecoins to deposit
      * @param pid - number of the pool to which the deposit goes
      */
-    function deposit(uint256[3] memory amounts, uint256 pid)
+    function deposit(uint256[3] memory amounts, uint256 pid) //TODO: хочется, конечно чтобы депозит шел по tid - айдишнику токена в протоколе и не гонял пустой массив если хочется задепозитить один токен или депозитить по безмерному массиву TokenDeposit (tid, amount)
         external
         isNotLocked
         isStrategyStarted(pid)
         returns (uint256)
     {
-        IStrategy strategy = poolInfo[pid].strategy;
+        IStrategy strategy = poolInfo[pid].strategy; //TODO: везде проверять, что стратегия существует
         uint256 holdings = totalHoldings();
 
         for (uint256 i = 0; i < amounts.length; i++) {
@@ -303,14 +301,14 @@ contract Zunami is Context, Ownable, ERC20 {
                 );
             }
         }
-        uint256 sum = strategy.deposit(amounts);
+        uint256 sum = strategy.deposit(amounts); //TODO: аналогичные замечания как и в общем депозите по именованию
         require(sum > 0, 'too low amount!');
 
         uint256 lpShares = 0;
         if (totalSupply() == 0) {
             lpShares = sum;
         } else {
-            lpShares = (sum * totalSupply()) / holdings;
+            lpShares = (sum * totalSupply()) / holdings; //TODO: думаю тут всеже логично (totalSupply() * sum) / holdings - мы ищем пропорцию новой добавленной ценности к уже ранее добавленной
         }
         _mint(_msgSender(), lpShares);
         strategy.updateZunamiLpInStrat(lpShares, true);
@@ -338,14 +336,14 @@ contract Zunami is Context, Ownable, ERC20 {
         require(balanceOf(userAddr) >= lpShares, 'Zunami: not enough LP balance');
         require(
             strategy.withdraw(userAddr, lpShares, minAmounts),
-            'user lps share should be at least required'
+            'user lps share should be at least required' //TODO: Zunami:
         );
 
         uint256 userDeposit = (totalDeposited * lpShares) / totalSupply();
         _burn(userAddr, lpShares);
         strategy.updateZunamiLpInStrat(lpShares, false);
 
-        if (userDeposit > deposited[userAddr]) {
+        if (userDeposit > deposited[userAddr]) { //TODO: аналогисно странная ситуация
             userDeposit = deposited[userAddr];
         }
 
@@ -369,7 +367,7 @@ contract Zunami is Context, Ownable, ERC20 {
      * @param strategyAddr - address from which strategy managementFees withdrawn
      */
 
-    function claimManagementFees(address strategyAddr) external onlyOwner {
+    function claimManagementFees(address strategyAddr) external onlyOwner { //TODO: почему стратегия берется не по PID? в итоге можно дернуть произвольный адрес стратегии
         IStrategy(strategyAddr).claimManagementFees();
     }
 
@@ -378,10 +376,12 @@ contract Zunami is Context, Ownable, ERC20 {
      * @param _strategy - add new address strategy in poolInfo Array
      */
 
-    function add(address _strategy) external onlyOwner {
+    //TODO: addPool
+    function add(address _strategy) external onlyOwner { //TODO: проверить на нулевой адрес
         poolInfo.push(
             PoolInfo({ strategy: IStrategy(_strategy), startTime: block.timestamp + MIN_LOCK_TIME })
         );
+        //TODO: неплохо бы сделать emit AddedPool (или как сейчас AddStrategy )
     }
 
     /**
@@ -442,8 +442,8 @@ contract Zunami is Context, Ownable, ERC20 {
     /**
      * @dev dev can emergency transfer funds from all strategy's to zero pool (strategy)
      */
-    function emergencyWithdraw() external onlyOwner {
-        uint256 length = poolInfo.length;
+    function emergencyWithdraw() external onlyOwner { //TODO: почему не переиспользовать метод moveFundsBatch ? в данном случаем можно дважды пройтись по массиву пулов - первый чтобы сформировать массив pids пулов за вычетом первого
+        uint256 length = poolInfo.length; //TODO: poolCount
         require(length > 1, 'Zunami: Nothing withdraw');
         uint256[3] memory amounts;
         uint256[3] memory amountsBefore;
@@ -472,7 +472,7 @@ contract Zunami is Context, Ownable, ERC20 {
      */
     function pendingDepositRemove() external {
         for (uint256 i = 0; i < POOL_ASSETS; i++) {
-            if (accDepositPending[_msgSender()][i] > 0) {
+            if (accDepositPending[_msgSender()][i] > 0) { //TODO: accDepositPending[_msgSender()][i] - лучше выгрузитьв локальную переменную
                 IERC20Metadata(tokens[i]).safeTransfer(
                     _msgSender(),
                     accDepositPending[_msgSender()][i]

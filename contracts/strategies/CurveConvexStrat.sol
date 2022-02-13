@@ -20,8 +20,8 @@ contract CurveConvexStrat is Context, BaseStrat {
     using SafeERC20 for IERC20Metadata;
     using SafeERC20 for IConvexMinter;
 
-    uint256 public usdtPoolId = 2;
-    uint256[3] public decimalsMultiplierS;
+    uint256 public usdtPoolId = 2; //TODO: данная переменная(почему не константа?) не нужа если считать базовый токен нулевым
+    uint256[3] public decimalsMultiplierS; //TODO: почему это не берется из протокола?
 
     ICurvePoolUnderlying public pool;
     IERC20Metadata public poolLP;
@@ -29,8 +29,8 @@ contract CurveConvexStrat is Context, BaseStrat {
     IUniswapV2Pair public wethcvx;
     IUniswapV2Pair public wethusdt;
     IConvexBooster public booster;
-    IConvexRewards public crvRewards;
-    IERC20Metadata public extraToken;
+    IConvexRewards public crvRewards; //TODO: лучше назвать это cnvxRewards - по используемому протоколу, а не по получаемой награде (тем более награда в crv и cvx)
+    IERC20Metadata public extraToken; //TODO: не используется в данной стратегии
     IConvexRewards public extraRewards;
     uint256 public cvxPoolPID;
 
@@ -66,7 +66,7 @@ contract CurveConvexStrat is Context, BaseStrat {
      * After user deposit this amount grow, after withdraw goes down.
      * @return Returns ZLP amount invested in strategy
      */
-    function getZunamiLpInStrat() external view virtual returns (uint256) {
+    function getZunamiLpInStrat() external view virtual returns (uint256) { //TODO: перенести в базовую стратегию
         return zunamiLpInStrat;
     }
 
@@ -121,11 +121,11 @@ contract CurveConvexStrat is Context, BaseStrat {
         uint256 amountsMin = (_amountsTotal * minDepositAmount) / DEPOSIT_DENOMINATOR;
         uint256 lpPrice = pool.get_virtual_price();
         uint256 depositedLp = pool.calc_token_amount(amounts, true);
-        if ((depositedLp * lpPrice) / 1e18 >= amountsMin) {
+        if ((depositedLp * lpPrice) / 1e18 >= amountsMin) { //TODO: DENOMINATOR должен быть использован
             for (uint256 i = 0; i < 3; i++) {
                 IERC20Metadata(tokens[i]).safeIncreaseAllowance(address(pool), amounts[i]);
             }
-            uint256 poolLPs = pool.add_liquidity(amounts, 0, true);
+            uint256 poolLPs = pool.add_liquidity(amounts, 0, true); //TODO: MEV
             poolLP.safeApprove(address(booster), poolLPs);
             booster.depositAll(cvxPoolPID, true);
             return ((poolLPs * pool.get_virtual_price()) / DENOMINATOR);
@@ -160,7 +160,7 @@ contract CurveConvexStrat is Context, BaseStrat {
         uint256[] memory userBalances = new uint256[](3);
         uint256[] memory prevBalances = new uint256[](3);
         for (uint256 i = 0; i < 3; i++) {
-            uint256 managementFee = (i == usdtPoolId) ? managementFees : 0;
+            uint256 managementFee = (i == usdtPoolId) ? managementFees : 0; //TODO: почему менеджмент фии берется только в USDT?
             prevBalances[i] = IERC20Metadata(tokens[i]).balanceOf(address(this));
             userBalances[i] = ((prevBalances[i] - managementFee) * lpShares) / zunamiLpInStrat;
         }
