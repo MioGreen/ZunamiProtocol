@@ -161,6 +161,7 @@ abstract contract CurveConvexStratBase is Ownable {
         uint128 tokenIndex
     ) external virtual onlyZunami returns (bool) {
         require(userRatioOfCrvLps > 0 && userRatioOfCrvLps <= 1e18, 'Wrong lp Ratio');
+
         (bool success, uint256 removingCrvLps, uint256[] memory tokenAmountsDynamic) = calcCrvLps(
             withdrawalType,
             userRatioOfCrvLps,
@@ -171,6 +172,8 @@ abstract contract CurveConvexStratBase is Ownable {
         if (!success) {
             return false;
         }
+
+        compoundRewards();
 
         uint256[] memory prevBalances = new uint256[](3);
         for (uint256 i = 0; i < 3; i++) {
@@ -254,12 +257,18 @@ abstract contract CurveConvexStratBase is Ownable {
     }
 
     function autoCompound() public onlyZunami {
+        compoundRewards();
+    }
+
+    function compoundRewards() internal {
+        if(cvxRewards.earned(address(this)) == 0) return;
+
         cvxRewards.getReward();
 
         sellRewards();
 
         uint256 usdtBalance = _config.tokens[ZUNAMI_USDT_TOKEN_ID].balanceOf(address(this)) -
-            managementFees;
+        managementFees;
 
         uint256[3] memory amounts;
         amounts[ZUNAMI_USDT_TOKEN_ID] = usdtBalance;
