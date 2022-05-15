@@ -15,6 +15,11 @@ function getMinAmount(): BigNumber[] {
     return [dai, usdc, usdt];
 }
 
+enum WithdrawalType {
+    Base,
+    OneCoin,
+}
+
 describe('Single strategy tests', () => {
     const strategyNames = [
         'USDNCurveConvex',
@@ -193,7 +198,7 @@ describe('Single strategy tests', () => {
         }
     });
 
-    it('should withdraw assets in butch mode', async () => {
+    it('should withdraw assets in optimize in base mode', async () => {
         for (let poolId = 0; poolId < strategies.length; poolId++) {
             await zunami.addPool(strategies[poolId].address);
             await zunami.setDefaultDepositPid(poolId);
@@ -214,12 +219,12 @@ describe('Single strategy tests', () => {
             }
 
             await expect(
-                zunami.completeWithdrawals([alice.getAddress(), bob.getAddress()])
+                zunami.completeWithdrawalsBase([alice.getAddress(), bob.getAddress()], [0,0,0])
             ).to.emit(zunami, 'Withdrawn');
         }
     });
 
-    it('should withdraw assets in optimized mode', async () => {
+    it('should withdraw assets in optimized one coin mode', async () => {
         for (let poolId = 0; poolId < strategies.length; poolId++) {
             await zunami.addPool(strategies[poolId].address);
             await zunami.setDefaultDepositPid(poolId);
@@ -234,13 +239,13 @@ describe('Single strategy tests', () => {
                 const zlpAmount = BigNumber.from(await zunami.balanceOf(user.getAddress()));
                 expect(zlpAmount).to.gt(0);
 
-                await expect(zunami.connect(user).delegateWithdrawal(zlpAmount, [0, 0, 0], WithdrawalType.Base, 0))
+                await expect(zunami.connect(user).delegateWithdrawal(zlpAmount, [0, 0, 0], WithdrawalType.OneCoin, 0))
                     .to.emit(zunami, 'CreatedPendingWithdrawal')
                     .withArgs(await user.getAddress(), zlpAmount, [0, 0, 0]);
             }
 
             await expect(
-                zunami.completeWithdrawals([alice.getAddress(), bob.getAddress()])
+                zunami.completeWithdrawalsOneCoin([alice.getAddress(), bob.getAddress()], [0,0,0])
             ).to.emit(zunami, 'Withdrawn');
         }
     });
