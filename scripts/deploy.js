@@ -19,8 +19,10 @@ async function main() {
     await zunami.deployed();
     console.log('Zunami deployed to:', zunami.address);
 
-    await deployAndLinkStrategy('USDNCurveConvex', zunami);
-    await deployAndLinkStrategy('DUSDCurveConvex', zunami);
+    await deployAndLinkStrategy('RebalancingStrat', zunami);
+
+    await zunami.setDefaultDepositPid(0);
+    await zunami.setDefaultWithdrawPid(0);
 }
 
 main()

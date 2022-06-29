@@ -11,7 +11,6 @@ import "./interfaces/stargate/IStargateReceiver.sol";
 import "./interfaces/stargate/IStargateRouter.sol";
 import "./interfaces/layerzero/ILayerZeroEndpoint.sol";
 
-
 contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IStargateReceiver {
     using SafeERC20 for IERC20Metadata;
 
@@ -29,8 +28,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         uint256[] lpSharesAmounts;
     }
 
-    IStargateRouter stargateRouter;
-    ILayerZeroEndpoint layerZeroEndpoint;
+    IStargateRouter public stargateRouter;
+    ILayerZeroEndpoint public layerZeroEndpoint;
 
     uint8 public constant POOL_ASSETS = 3;
     uint8 public constant USDT_TOKEN_ID = 2;
@@ -140,7 +139,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         uint256 totalTokenAmount = 0;
         uint256[] memory tokenAmounts = new uint256[](userList.length);
-        // 1/ clone all deposits with specific stable (USDT or USDC) - copy to separate mapping and remove from official mapping
+        // 1/ clone all deposits with specific stable USDT - copy to separate mapping and remove from official mapping
         for (uint256 i = 0; i < userList.length; i++) {
             address user = userList[i];
             uint256 deposit = _pendingDeposits[user];
@@ -151,18 +150,18 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         }
         _processingDeposits[depositId] = ProcessingDeposits(totalTokenAmount, userList, tokenAmounts);
 
-        // 2/ send cloned deposits to forwarder by star gate
+        // 2/ send cloned deposits to forwarder by stargate
         // the msg.value is the "fee" that Stargate needs to pay for the cross chain message
         stargateRouter.swap{value:msg.value}(
             forwarderChainId,                       // LayerZero chainId
             tokenPoolId,                            // source pool id
             forwarderTokenPoolId,                   // dest pool id
-            payable(msg.sender),                             // refund adddress. extra gas (if any) is returned to this address
+            payable(msg.sender),                    // refund address. extra gas (if any) is returned to this address
             totalTokenAmount,                       // quantity to swap
             totalTokenAmount,                       // the min qty you would accept on the destination
-            IStargateRouter.lzTxObj(0, 0, "0x"),     // 0 additional gasLimit increase, 0 airdrop, at 0x address
+            IStargateRouter.lzTxObj(350000, 0, "0x"),     // 0 additional gasLimit increase, 0 airdrop, at 0x address
             abi.encodePacked(forwarderAddress),     // the address to send the tokens to on the destination
-            abi.encode(depositId)          // bytes param, if you wish to send additional payload you can abi.encode() them here
+            abi.encode(depositId)                   // bytes param, if you wish to send additional payload you can abi.encode() them here
         );
     }
 
@@ -172,6 +171,11 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     // @param _nonce - the ordered message nonce
     // @param _payload - the signed payload is the UA bytes has encoded to be sent
     function lzReceive(uint16 _srcChainId, bytes calldata _srcAddress, uint64 _nonce, bytes calldata _payload) external {
+        require(
+            msg.sender == address(layerZeroEndpoint),
+            "ZunamiGateway: only zero layer endpoint can call lzReceive!"
+        );
+
         require(_srcChainId == forwarderChainId, "ZunamiGateway: wrong source chain id");
 //        require(_srcAddress == forwarderAddress, "ZunamiGateway: wrong source address");
 
@@ -179,11 +183,11 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         (uint256 depositId, uint256 totalLpShares) = abi.decode(_payload, (uint256, uint256));
         ProcessingDeposits memory deposits = _processingDeposits[depositId];
         for (uint256 i = 0; i < deposits.users.length; i++) {
-            uint256 tokenAmounts = deposits.tokenAmounts[i];
-            uint256 lpShares = (totalLpShares * tokenAmounts) / deposits.totalTokenAmount;
+            uint256 tokenAmount = deposits.tokenAmounts[i];
+            uint256 lpShares = (totalLpShares * tokenAmount) / deposits.totalTokenAmount;
             _mint(deposits.users[i], lpShares);
 
-            emit Deposited(deposits.users[i], tokenAmounts, lpShares);
+            emit Deposited(deposits.users[i], tokenAmount, lpShares);
         }
         delete _processingDeposits[depositId];
     }
@@ -248,14 +252,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         // get the fees we need to pay to LayerZero for message delivery
         (uint messageFee, ) = layerZeroEndpoint.estimateFees(forwarderChainId, address(this), payload, false, adapterParams);
-        require(address(this).balance >= messageFee, "address(this).balance < messageFee. fund this contract with more ether");
+        require(address(this).balance >= messageFee, "address(this).balance < messageFee. fund this contract with more native tokens");
 
         layerZeroEndpoint.send{value: messageFee}( // {value: messageFee} will be paid out of this contract!
             forwarderChainId, // destination chainId
             abi.encodePacked(forwarderAddress), // destination address of PingPong contract
             payload, // abi.encode()'ed bytes
             payable(address(this)), // (msg.sender will be this contract) refund address (LayerZero will refund any extra gas back to caller of send()
-            address(0x0), // future param, unused for this example
+            address(0x0), // future param
             adapterParams // v1 adapterParams, specify custom destination gas qty
         );
     }
@@ -268,6 +272,11 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         uint256 _amountLD,                // the qty of local _token contract tokens
         bytes memory _payload
     ) external {
+        require(
+            msg.sender == address(stargateRouter),
+            "ZunamiGateway: only stargate router can call sgReceive!"
+        );
+
         require(_srcChainId == forwarderChainId, "ZunamiGateway: wrong source chain id");
 //        require(_srcAddress == forwarderAddress, "ZunamiGateway: wrong source address");
 
