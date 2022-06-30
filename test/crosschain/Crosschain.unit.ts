@@ -188,6 +188,7 @@ describe('Crosschain', () => {
         //TODO: return 500 instead of 600 zlp
         let message = ethers.utils.defaultAbiCoder.encode([ "uint", "uint" ], [ depositId, tokenify(usdtTotal).toFixed() ]);
         await layerzero.lzReceive(gateway.address, masterChainId, forwarder.address, 0, message);
+        await gateway.finalizeDeposits(depositId);
 
         for (let i = 0; i < users.length; i++) {
             await expect(await gateway.balanceOf(users[i].address)).to.be.equal(tokenify(usdtAmounts[i]).toFixed());
@@ -210,6 +211,7 @@ describe('Crosschain', () => {
         await usdt.mint(gateway.address, gzlpTotalBalance);
         message = ethers.utils.defaultAbiCoder.encode([ "uint", "uint" ], [ withdrawalId, gzlpTotalBalance ]);
         await stargate.sgReceive(gateway.address, masterChainId, forwarder.address, 0, usdt.address, gzlpTotalBalance, message);
+        await gateway.finalizeWithdrawals(withdrawalId);
 
         for (let i = 0; i < users.length; i++) {
             await expect(await usdt.balanceOf(users[i].address)).to.be.equal(tokenify(usdtAmounts[i] / 2).toFixed());
@@ -247,4 +249,16 @@ describe('Crosschain', () => {
 
         await forwarder.completeWithdrawals(witdrawalId);
     });
+
+    // it('should withdraw stuck native coin', async () => {
+    //     await alice.sendTransaction({
+    //         to: gateway.address,
+    //         value: ethers.utils.parseEther("1"),
+    //     });
+    //     await expect(await provider.getBalance(gateway.address)).to.be.equal(ethers.utils.parseEther("1"));
+    //
+    //     await gateway.withdrawStuckNative();
+    //
+    //     await expect(await provider.getBalance(gateway.address)).to.be.equal(0);
+    // });
 });

@@ -1,1 +1,22 @@
-1 Approve USDT 10000000 to gateway:
+1/ Approve USDT to gateway
+
+https://bscscan.com/address/0x55d398326f99059ff775485246999027b3197955#writeContract
+increaseAllowance
+    0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c
+    10000000000000000000
+
+https://bscscan.com/tx/0x6e59414b08697845162a224d3635bd857e4b413c2a477c910ac5f63c6ce58f51
+
+
+2/ Delegate deposit to gateway
+
+https://bscscan.com/address/0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c#writeContract
+delegateDeposit
+    [0,0,10000000000000000000]
+
+3/ Complete delegate
+
+https://bscscan.com/address/0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c#writeContract
+completeDelegate
+    0.1
+    [0xe9b2B067eE106A6E518fB0552F3296d22b82b32B]
