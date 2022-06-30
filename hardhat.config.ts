@@ -86,7 +86,8 @@ const config: HardhatUserConfig = {
             accounts: [`${process.env.PRIVATE_KEY}`],
             gas: 'auto',
             gasMultiplier: 1.2,
-            gasPrice: 'auto',
+            gasPrice: 50000000000,
+            loggingEnabled: true,
         },
         bsc: {
             url: `${process.env.BINANCE_NODE_API_KEY}`,
@@ -94,7 +95,8 @@ const config: HardhatUserConfig = {
             accounts: [`${process.env.PRIVATE_KEY}`],
             gas: 'auto',
             gasMultiplier: 1.2,
-            gasPrice: 'auto',
+            gasPrice: 5000000000,
+            loggingEnabled: true,
         },
         development: {
             url: 'http://127.0.0.1:8545',
@@ -117,6 +119,9 @@ const config: HardhatUserConfig = {
     },
     mocha: {
         timeout: 500000,
+    },
+    etherscan: {
+        apiKey: `${process.env.ETHERSCAN_API_KEY}`,
     },
     etherscan: {
         apiKey: `${process.env.ETHERSCAN_API_KEY}`,
