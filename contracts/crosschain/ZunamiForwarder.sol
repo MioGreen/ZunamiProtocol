@@ -30,15 +30,12 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     uint256 public constant SG_FEE_REDUCER = 999;
     uint256 public constant SG_FEE_DIVIDER = 1000;
 
-    address[POOL_ASSETS] public tokens;
+    IERC20Metadata[POOL_ASSETS] public tokens;
     uint256 public tokenPoolId;
 
     uint16 public gatewayChainId;
     address public gatewayAddress;
     uint256 public gatewayTokenPoolId;
-
-    mapping(uint256 => uint256) internal _pendingDeposits;
-    mapping(uint256 => bool) internal _pendingWithdrawals;
 
     event CreatedPendingDeposit(uint256 indexed id, uint256 tokenId, uint256 tokenAmount);
     event CreatedPendingWithdrawal(
@@ -59,7 +56,7 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     );
 
     constructor(
-        address[POOL_ASSETS] memory _tokens,
+        IERC20Metadata[POOL_ASSETS] memory _tokens,
         uint256 _tokenPoolId,
         address _zunami,
         address _curveExchange,
@@ -92,14 +89,6 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         emit SetGatewayParams(_chainId, _address, _tokenPoolId);
     }
 
-    function pendingDeposits(uint256 depositId) external view returns (uint256) {
-        return _pendingDeposits[depositId];
-    }
-
-    function pendingWithdrawals(uint256 withdrawalId) external view returns (bool) {
-        return _pendingWithdrawals[withdrawalId];
-    }
-
     function sgReceive(
         uint16 _srcChainId,              // the remote chainId sending the tokens
         bytes memory _srcAddress,        // the remote Bridge address
@@ -117,7 +106,7 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         require(_srcChainId == gatewayChainId, "Forwarder: wrong source chain id");
 
         (uint256 depositId) = abi.decode(payload, (uint256));
-        require(_token == tokens[USDT_TOKEN_ID], "Forwarder: wrong token address");
+        require(_token == address(tokens[USDT_TOKEN_ID]), "Forwarder: wrong token address");
         // 2/ create deposite in Zunami
         uint256[3] memory amounts;
         amounts[uint256(USDT_TOKEN_ID)] = amountLD;
@@ -127,14 +116,14 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         emit CreatedPendingDeposit(depositId, USDT_TOKEN_ID, amountLD);
     }
 
-    function completeDeposits(uint256 depositId, uint256 zlpTotalAmount)
+    function completeBatchedDeposit(uint256 depositId, uint256 zlpTotalAmount)
     external
     payable
     onlyRole(OPERATOR_ROLE)
     {
         // 0/ wait until receive ZLP tokens
         // 1/ send zerolayer message to gateway with ZLP amount
-        bytes memory payload = abi.encode(depositId, _pendingDeposits[depositId], zlpTotalAmount);
+        bytes memory payload = abi.encode(depositId, zlpTotalAmount);
 
         // use adapterParams v1 to specify more gas for the destination
         bytes memory adapterParams = abi.encodePacked(uint16(1), uint256(50000));
@@ -175,12 +164,11 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         uint256[POOL_ASSETS] memory tokenAmounts;
         IERC20Metadata(address(zunami)).safeApprove(address(zunami), zlpAmount);
         zunami.delegateWithdrawal(zlpAmount, tokenAmounts);
-        _pendingWithdrawals[withdrawalId] = true;
 
         emit CreatedPendingWithdrawal(withdrawalId, zlpAmount);
     }
 
-    function completeWithdrawals(uint256 withdrawalId)
+    function completeBatchedWithdrawal(uint256 withdrawalId)
     external
     payable
     onlyRole(OPERATOR_ROLE)
@@ -192,14 +180,16 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         exchangeOtherTokenToUSDT(USDC_TOKEN_ID);
 
         // 2/ send USDT by start gate to gateway
-        uint256 usdtAmount = IERC20Metadata(tokens[USDT_TOKEN_ID]).balanceOf(address(this));
+        uint256 usdtAmount = tokens[USDT_TOKEN_ID].balanceOf(address(this));
+
+        tokens[USDT_TOKEN_ID].safeIncreaseAllowance(address(stargateRouter), usdtAmount);
 
         // the msg.value is the "fee" that Stargate needs to pay for the cross chain message
         stargateRouter.swap{value:msg.value}(
             gatewayChainId,                             // LayerZero chainId
             tokenPoolId,                                // source pool id
             gatewayTokenPoolId,                         // dest pool id
-            payable(msg.sender),                        // refund adddress. extra gas (if any) is returned to this address
+            payable(msg.sender),                        // refund address. extra gas (if any) is returned to this address
             usdtAmount,                                 // quantity to swap
             usdtAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER,   // the min qty you would accept on the destination
             IStargateRouter.lzTxObj(50000, 0, "0x"),   // 0 additional gasLimit increase, 0 airdrop, at 0x address
@@ -211,8 +201,9 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     }
 
     function exchangeOtherTokenToUSDT(int128 tokenId) internal {
-        uint256 tokenBalance = IERC20Metadata(tokens[uint128(tokenId)]).balanceOf(address(this));
+        uint256 tokenBalance = tokens[uint128(tokenId)].balanceOf(address(this));
         if(tokenBalance > 0) {
+            tokens[uint128(tokenId)].safeIncreaseAllowance(address(curveExchange), tokenBalance);
             curveExchange.exchange(tokenId, int128(USDT_TOKEN_ID), tokenBalance, 0);
         }
     }

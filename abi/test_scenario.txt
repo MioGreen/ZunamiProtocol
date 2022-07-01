@@ -2,21 +2,37 @@
 
 https://bscscan.com/address/0x55d398326f99059ff775485246999027b3197955#writeContract
 increaseAllowance
-    0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c
+    0x2d691C2492e056ADCAE7cA317569af25910fC4cb
     10000000000000000000
-
-https://bscscan.com/tx/0x6e59414b08697845162a224d3635bd857e4b413c2a477c910ac5f63c6ce58f51
-
 
 2/ Delegate deposit to gateway
 
-https://bscscan.com/address/0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c#writeContract
+https://bscscan.com/address/0x2d691C2492e056ADCAE7cA317569af25910fC4cb#writeContract
 delegateDeposit
     [0,0,10000000000000000000]
 
-3/ Complete delegate
+3/ Complete deposit
 
-https://bscscan.com/address/0x9B43E47BEc96A9345cd26fDDE7EFa5F8C06e126c#writeContract
-completeDelegate
+https://bscscan.com/address/0x2d691C2492e056ADCAE7cA317569af25910fC4cb#writeContract
+completeDeposits
     0.1
     [0xe9b2B067eE106A6E518fB0552F3296d22b82b32B]
+
+4/ Complete deposit on master chain
+    - check USDT is going through forwarder https://polygonscan.com/address/0xc9ee652953d8069c5ed37bbb3f8142c6243efda0#tokentxns
+    - complete delegated deposit:
+https://polygonscan.com/address/0x9b43e47bec96a9345cd26fdde7efa5f8c06e126c#writeContract
+completeDeposits
+    [0xc9ee652953d8069c5ed37bbb3f8142c6243efda0]
+
+5/ Complete deposits in Forwarder
+https://polygonscan.com/address/0xc9ee652953d8069c5ed37bbb3f8142c6243efda0#writeContract
+completeDeposits
+    5
+    19172951
+    9994000000000000000
+
+6/ Finalize deposit in Gateway
+https://bscscan.com/address/0x2d691C2492e056ADCAE7cA317569af25910fC4cb#writeContract
+finalizeDeposits
+    19172951

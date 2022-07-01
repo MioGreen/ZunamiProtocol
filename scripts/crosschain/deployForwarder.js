@@ -22,8 +22,8 @@ async function main() {
         config["crosschain"][networkId.toString()]["layerzero"]
     ];
 
-    // const forwarder = await ZunamiForwarder.deploy(...forwarderParams);
-    const forwarder = await ZunamiForwarder.attach("0x7b608af1Ab97204B348277090619Aa43b6033dE0");
+    const forwarder = await ZunamiForwarder.deploy(...forwarderParams);
+    // const forwarder = await ZunamiForwarder.attach("0x7b608af1Ab97204B348277090619Aa43b6033dE0");
     await forwarder.deployed();
     console.log('ZunamiForwarder deployed to:', forwarder.address, forwarderParams);
 }

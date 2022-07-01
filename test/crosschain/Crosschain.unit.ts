@@ -182,13 +182,13 @@ describe('Crosschain', () => {
             await gateway.connect(users[i]).delegateDeposit([0, 0, decify(usdtAmounts[i], 6).toFixed()]);
         }
 
-        await gateway.completeDeposits(users.map(user => user.address));
+        await gateway.sendBatchedDeposit(users.map(user => user.address));
         const depositId = await ethers.provider.getBlockNumber();
 
         //TODO: return 500 instead of 600 zlp
         let message = ethers.utils.defaultAbiCoder.encode([ "uint", "uint" ], [ depositId, tokenify(usdtTotal).toFixed() ]);
         await layerzero.lzReceive(gateway.address, masterChainId, forwarder.address, 0, message);
-        await gateway.finalizeDeposits(depositId);
+        await gateway.finalizeBatchedDeposit(depositId);
 
         for (let i = 0; i < users.length; i++) {
             await expect(await gateway.balanceOf(users[i].address)).to.be.equal(tokenify(usdtAmounts[i]).toFixed());
@@ -203,7 +203,7 @@ describe('Crosschain', () => {
             await gateway.connect(users[i]).delegateWithdrawal(tokenBalance);
         }
 
-        await gateway.completeWithdrawals(users.map(user => user.address));
+        await gateway.sendBatchedWithdrawal(users.map(user => user.address));
         const withdrawalId = await ethers.provider.getBlockNumber();
 
         const gzlpTotalBalance = tokenify(gzlpTotal).toFixed();
@@ -211,7 +211,7 @@ describe('Crosschain', () => {
         await usdt.mint(gateway.address, gzlpTotalBalance);
         message = ethers.utils.defaultAbiCoder.encode([ "uint", "uint" ], [ withdrawalId, gzlpTotalBalance ]);
         await stargate.sgReceive(gateway.address, masterChainId, forwarder.address, 0, usdt.address, gzlpTotalBalance, message);
-        await gateway.finalizeWithdrawals(withdrawalId);
+        await gateway.finalizeBatchedWithdrawal(withdrawalId);
 
         for (let i = 0; i < users.length; i++) {
             await expect(await usdt.balanceOf(users[i].address)).to.be.equal(tokenify(usdtAmounts[i] / 2).toFixed());
@@ -234,7 +234,7 @@ describe('Crosschain', () => {
         await expect(await usdt.balanceOf(zunami.address)).to.be.equal(0);
         await expect(await zunami.balanceOf(forwarder.address)).to.be.equal(decify(600, 18).toFixed());
 
-        await forwarder.completeDeposits(depositId, usdtTotal);
+        await forwarder.completeBatchedDeposit(depositId, usdtTotal);
 
         // withdrawal
         const witdrawalId = 4321;
@@ -247,7 +247,7 @@ describe('Crosschain', () => {
         await expect(await usdt.balanceOf(strategy.address)).to.be.equal(decify(600 / 2, 6).toFixed());
         await expect(await usdt.balanceOf(forwarder.address)).to.be.equal(decify(600 / 2, 6).toFixed());
 
-        await forwarder.completeWithdrawals(witdrawalId);
+        await forwarder.completeBatchedWithdrawal(witdrawalId);
     });
 
     // it('should withdraw stuck native coin', async () => {

@@ -16,14 +16,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
     bytes32 public constant OPERATOR_ROLE = keccak256('OPERATOR_ROLE');
 
-    struct ProcessingDeposits {
+    struct BatchedDeposit {
         uint256 totalTokenAmount;
         address[] users;
         uint256[] tokenAmounts;
         uint256 totalLpShares;
     }
 
-    struct ProcessingWithdrawals {
+    struct BatchedWithdrawal {
         uint256 totalLpShares;
         address[] users;
         uint256[] lpSharesAmounts;
@@ -39,7 +39,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     uint256 public constant SG_FEE_REDUCER = 999;
     uint256 public constant SG_FEE_DIVIDER = 1000;
 
-    address public token;
+    IERC20Metadata public token;
     uint256 public tokenPoolId;
 
     uint16 public forwarderChainId;
@@ -47,13 +47,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     uint256 public forwarderTokenPoolId;
 
     mapping(address => uint256) internal _pendingDeposits;
-    mapping(uint256 => ProcessingDeposits) internal _processingDeposits;
+    mapping(uint256 => BatchedDeposit) internal _processingBatchedDeposits;
 
     mapping(address => uint256) internal _pendingWithdrawals;
-    mapping(uint256 => ProcessingWithdrawals) internal _processingWithdrawals;
+    mapping(uint256 => BatchedWithdrawal) internal _processingBatchedWithdrawals;
 
     event CreatedPendingDeposit(address indexed depositor, uint256 amount);
-    event ReceivedDepositsCallback(
+    event SentBatchedDepositRequest(uint256 depositId, uint256 totalTokenAmount);
+    event ReceivedBatchedDepositResponse(
         uint256 depositId,
         uint256 lpShares
     );
@@ -63,7 +64,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         address indexed withdrawer,
         uint256 lpShares
     );
-    event ReceivedWithdrawalsCallback(
+    event SentBatchedWithdrawalRequest(uint256 withdrawalId, uint256 totalLpShares);
+    event ReceivedBatchedWithdrawalResponse(
         uint256 withdrawalId,
         uint256 tokenAmount
     );
@@ -91,7 +93,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _setupRole(OPERATOR_ROLE, msg.sender);
 
-        token = _token;
+        token = IERC20Metadata(_token);
         tokenPoolId = _tokenPoolId;
 
         stargateRouter = IStargateRouter(_stargateRouter);
@@ -120,6 +122,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         return _pendingWithdrawals[user];
     }
 
+    function processingBatchedDeposits(uint256 depositId) external view returns (BatchedDeposit memory) {
+        return _processingBatchedDeposits[depositId];
+    }
+
+    function processingBatchedWithdrawals(uint256 withdrawalId) external view returns (BatchedWithdrawal memory) {
+        return _processingBatchedWithdrawals[withdrawalId];
+    }
+
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
         _pause();
     }
@@ -135,7 +145,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
      */
     function delegateDeposit(uint256[POOL_ASSETS] memory amounts) external whenNotPaused {
         if (amounts[USDT_TOKEN_ID] > 0) {
-            IERC20Metadata(token).safeTransferFrom(_msgSender(), address(this), amounts[USDT_TOKEN_ID]);
+            token.safeTransferFrom(_msgSender(), address(this), amounts[USDT_TOKEN_ID]);
             _pendingDeposits[_msgSender()] += amounts[USDT_TOKEN_ID];
         }
 
@@ -146,7 +156,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
      * @dev Zunami protocol owner complete all active pending deposits of users
      * @param userList - dev send array of users from pending to complete
      */
-    function completeDeposits(address[] memory userList)
+    function sendBatchedDeposit(address[] memory userList)
     external
     payable
     onlyRole(OPERATOR_ROLE)
@@ -164,7 +174,9 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             totalTokenAmount += deposit;
             delete _pendingDeposits[user];
         }
-        _processingDeposits[depositId] = ProcessingDeposits(totalTokenAmount, userList, tokenAmounts, 0);
+        _processingBatchedDeposits[depositId] = BatchedDeposit(totalTokenAmount, userList, tokenAmounts, 0);
+
+        token.safeIncreaseAllowance(address(stargateRouter), totalTokenAmount);
 
         // 2/ send cloned deposits to forwarder by stargate
         // the msg.value is the "fee" that Stargate needs to pay for the cross chain message
@@ -179,6 +191,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             abi.encodePacked(forwarderAddress),     // the address to send the tokens to on the destination
             abi.encode(depositId)                   // bytes param, if you wish to send additional payload you can abi.encode() them here
         );
+
+        emit SentBatchedDepositRequest(depositId, totalTokenAmount);
     }
 
     // @notice LayerZero endpoint will invoke this function to deliver the message on the destination
@@ -197,17 +211,17 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         // 3/ receive ZLP amount on lzReceive method for sent deposits and mint GZLP to each depositer proportionaly deposits
         (uint256 depositId, uint256 totalLpShares) = abi.decode(_payload, (uint256, uint256));
-        ProcessingDeposits storage deposits = _processingDeposits[depositId];
+        BatchedDeposit storage deposits = _processingBatchedDeposits[depositId];
         deposits.totalLpShares = totalLpShares;
 
-        emit ReceivedDepositsCallback(depositId, totalLpShares);
+        emit ReceivedBatchedDepositResponse(depositId, totalLpShares);
     }
 
-    function finalizeDeposits(uint256 depositId)
+    function finalizeBatchedDeposit(uint256 depositId)
     external
     onlyRole(OPERATOR_ROLE)
     {
-        ProcessingDeposits memory deposits = _processingDeposits[depositId];
+        BatchedDeposit memory deposits = _processingBatchedDeposits[depositId];
         require(deposits.totalLpShares > 0, "Gateway: callback wasn't received");
         for (uint256 i = 0; i < deposits.users.length; i++) {
             uint256 tokenAmount = deposits.tokenAmounts[i];
@@ -216,7 +230,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
             emit Deposited(deposits.users[i], tokenAmount, lpShares);
         }
-        delete _processingDeposits[depositId];
+        delete _processingBatchedDeposits[depositId];
     }
 
     /**
@@ -247,7 +261,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         emit CreatedPendingWithdrawal(userAddr, lpShares);
     }
 
-    function completeWithdrawals(address[] memory userList)
+    function sendBatchedWithdrawal(address[] memory userList)
         external
         payable
         onlyRole(OPERATOR_ROLE)
@@ -268,7 +282,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             totalLpShares += lpShares;
             delete _pendingWithdrawals[user];
         }
-        _processingWithdrawals[withdrawalId] = ProcessingWithdrawals(totalLpShares, userList, lpSharesAmounts, 0);
+        _processingBatchedWithdrawals[withdrawalId] = BatchedWithdrawal(totalLpShares, userList, lpSharesAmounts, 0);
 
         // 2/ send withdrawal by zero layer request to forwarder with total withdrawing ZLP amount
         bytes memory payload = abi.encode(withdrawalId, totalLpShares);
@@ -291,6 +305,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             address(0x0), // future param
             adapterParams // v1 adapterParams, specify custom destination gas qty
         );
+
+        emit SentBatchedWithdrawalRequest(withdrawalId, totalLpShares);
     }
 
     function sgReceive(
@@ -312,16 +328,16 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         // 3/ receive USDC or USDT stables by star gate and transfer to customers
         // 4/ burn GZLP and remove cloned mapping
         (uint256 withdrawalId, uint256 totalTokenAmount) = abi.decode(_payload, (uint256, uint256));
-        ProcessingWithdrawals storage withdrawals = _processingWithdrawals[withdrawalId];
+        BatchedWithdrawal storage withdrawals = _processingBatchedWithdrawals[withdrawalId];
         withdrawals.totalTokenAmount = totalTokenAmount;
-        emit ReceivedWithdrawalsCallback(withdrawalId, totalTokenAmount);
+        emit ReceivedBatchedWithdrawalResponse(withdrawalId, totalTokenAmount);
     }
 
-    function finalizeWithdrawals(uint256 withdrawalId)
+    function finalizeBatchedWithdrawal(uint256 withdrawalId)
     external
     onlyRole(OPERATOR_ROLE)
     {
-        ProcessingWithdrawals memory withdrawals = _processingWithdrawals[withdrawalId];
+        BatchedWithdrawal memory withdrawals = _processingBatchedWithdrawals[withdrawalId];
         require(withdrawals.totalTokenAmount > 0, "Gateway: callback wasn't received");
         for (uint256 i = 0; i < withdrawals.users.length; i++) {
             uint256 lpShares = withdrawals.lpSharesAmounts[i];
@@ -332,7 +348,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             emit Withdrawn(user, tokenAmount, lpShares);
         }
 
-        delete _processingWithdrawals[withdrawalId];
+        delete _processingBatchedWithdrawals[withdrawalId];
     }
 
     function removePendingWithdrawal() external {
