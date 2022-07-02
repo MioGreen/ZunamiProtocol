@@ -63,8 +63,8 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         address _stargateRouter,
         address _layerZeroEndpoint
     ) public {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(OPERATOR_ROLE, msg.sender);
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(OPERATOR_ROLE, _msgSender());
         tokens = _tokens;
         tokenPoolId = _tokenPoolId;
 
@@ -91,14 +91,14 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
 
     function sgReceive(
         uint16 _srcChainId,              // the remote chainId sending the tokens
-        bytes memory _srcAddress,        // the remote Bridge address
+        bytes memory _srcAddress,        // the remote sender address
         uint256 _nonce,
         address _token,                  // the token contract on the local chain
         uint256 amountLD,                // the qty of local _token contract tokens
         bytes memory payload
     ) external {
         require(
-            msg.sender == address(stargateRouter),
+            _msgSender() == address(stargateRouter),
             "Forwarder: only stargate router can call sgReceive!"
         );
 
@@ -122,7 +122,8 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     onlyRole(OPERATOR_ROLE)
     {
         // 0/ wait until receive ZLP tokens
-        // 1/ send zerolayer message to gateway with ZLP amount
+        require(IERC20Metadata(address(zunami)).balanceOf(address(this)) >= zlpTotalAmount, "Forwarder: not enough zlp");
+        // 1/ send layer zero message to gateway with ZLP amount
         bytes memory payload = abi.encode(depositId, zlpTotalAmount);
 
         // use adapterParams v1 to specify more gas for the destination
@@ -134,11 +135,11 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
             msg.value >= messageFee,
             "Forwarder: must send enough value to cover messageFee"
         );
-        layerZeroEndpoint.send{value: messageFee}( // {value: messageFee} will be paid out of this contract!
+        layerZeroEndpoint.send{value: messageFee}(
             gatewayChainId, // destination chainId
-            abi.encodePacked(gatewayAddress), // destination address of PingPong contract
+            abi.encodePacked(gatewayAddress), // destination address
             payload, // abi.encode()'ed bytes
-            payable(address(this)), // (msg.sender will be this contract) refund address (LayerZero will refund any extra gas back to caller of send()
+            payable(_msgSender()),
             address(0x0), // future param, unused for this example
             adapterParams // v1 adapterParams, specify custom destination gas qty
         );
@@ -153,7 +154,7 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     // @param _payload - the signed payload is the UA bytes has encoded to be sent
     function lzReceive(uint16 _srcChainId, bytes calldata _srcAddress, uint64 _nonce, bytes calldata _payload) external {
         require(
-            msg.sender == address(layerZeroEndpoint),
+            _msgSender() == address(layerZeroEndpoint),
             "Forwarder: only zero layer endpoint can call lzReceive!"
         );
 
@@ -174,30 +175,31 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
     onlyRole(OPERATOR_ROLE)
     {
         // 0/ wait to receive stables from zunami
+
         // 1/ exchange DAI and USDC to USDT
         exchangeOtherTokenToUSDT(DAI_TOKEN_ID);
 
         exchangeOtherTokenToUSDT(USDC_TOKEN_ID);
 
         // 2/ send USDT by start gate to gateway
-        uint256 usdtAmount = tokens[USDT_TOKEN_ID].balanceOf(address(this));
+        uint256 tokenTotalAmount = tokens[USDT_TOKEN_ID].balanceOf(address(this));
 
-        tokens[USDT_TOKEN_ID].safeIncreaseAllowance(address(stargateRouter), usdtAmount);
+        tokens[USDT_TOKEN_ID].safeIncreaseAllowance(address(stargateRouter), tokenTotalAmount);
 
         // the msg.value is the "fee" that Stargate needs to pay for the cross chain message
         stargateRouter.swap{value:msg.value}(
             gatewayChainId,                             // LayerZero chainId
             tokenPoolId,                                // source pool id
             gatewayTokenPoolId,                         // dest pool id
-            payable(msg.sender),                        // refund address. extra gas (if any) is returned to this address
-            usdtAmount,                                 // quantity to swap
-            usdtAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER,   // the min qty you would accept on the destination
+            payable(_msgSender()),                        // refund address. extra gas (if any) is returned to this address
+            tokenTotalAmount,                                 // quantity to swap
+            tokenTotalAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER,   // the min qty you would accept on the destination
             IStargateRouter.lzTxObj(50000, 0, "0x"),   // 0 additional gasLimit increase, 0 airdrop, at 0x address
             abi.encodePacked(gatewayAddress),           // the address to send the tokens to on the destination
-            abi.encode(withdrawalId)                    // bytes param, if you wish to send additional payload you can abi.encode() them here
+            abi.encode(withdrawalId, tokenTotalAmount)                    // bytes param, if you wish to send additional payload you can abi.encode() them here
         );
 
-        emit Withdrawn(withdrawalId, USDT_TOKEN_ID, usdtAmount);
+        emit Withdrawn(withdrawalId, USDT_TOKEN_ID, tokenTotalAmount);
     }
 
     function exchangeOtherTokenToUSDT(int128 tokenId) internal {

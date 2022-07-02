@@ -121,7 +121,7 @@ const config: HardhatUserConfig = {
         timeout: 500000,
     },
     etherscan: {
-        apiKey: `${process.env.BSCSCAN_API_KEY}`,
+        apiKey: `${process.env.POLYGONSCAN_API_KEY}`,
     },
 };
 

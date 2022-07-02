@@ -90,8 +90,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         address _stargateRouter,
         address _layerZeroEndpoint
     ) ERC20('Gateway Zunami LP', 'GZLP') {
-        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _setupRole(OPERATOR_ROLE, msg.sender);
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+        _setupRole(OPERATOR_ROLE, _msgSender());
 
         token = IERC20Metadata(_token);
         tokenPoolId = _tokenPoolId;
@@ -184,7 +184,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             forwarderChainId,                       // LayerZero chainId
             tokenPoolId,                            // source pool id
             forwarderTokenPoolId,                   // dest pool id
-            payable(msg.sender),                    // refund address. extra gas (if any) is returned to this address
+            payable(_msgSender()),                    // refund address. extra gas (if any) is returned to this address
             totalTokenAmount,                       // quantity to swap
             totalTokenAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER,                                      // the min qty you would accept on the destination
             IStargateRouter.lzTxObj(150000, 0, "0x"),     // 350000 additional gasLimit increase, 0 airdrop, at 0x address
@@ -202,7 +202,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     // @param _payload - the signed payload is the UA bytes has encoded to be sent
     function lzReceive(uint16 _srcChainId, bytes calldata _srcAddress, uint64 _nonce, bytes calldata _payload) external {
         require(
-            msg.sender == address(layerZeroEndpoint),
+            _msgSender() == address(layerZeroEndpoint),
             "Gateway: only zero layer endpoint can call lzReceive!"
         );
 
@@ -240,7 +240,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         address depositor = _msgSender();
         if (_pendingDeposits[depositor] > 0) {
             IERC20Metadata(token).safeTransfer(
-                _msgSender(),
+                depositor,
                 _pendingDeposits[depositor]
             );
         }
@@ -254,6 +254,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         whenNotPaused
     {
         require(lpShares > 0, 'Gateway: lpAmount must be higher 0');
+
+        IERC20Metadata(address(this)).safeTransferFrom(_msgSender(), address(this), lpShares);
 
         address userAddr = _msgSender();
         _pendingWithdrawals[userAddr] = lpShares;
@@ -273,7 +275,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         uint256 totalLpShares = 0;
         uint256[] memory lpSharesAmounts = new uint256[](userList.length);
-        // 1/ clone all deposits with specific stable (USDT or USDC) - copy to separate mapping and remove from official mapping
+        // 1/ create batched withdrawal
         for (uint256 i = 0; i < userList.length; i++) {
             address user = userList[i];
             uint256 lpShares = _pendingWithdrawals[user];
@@ -282,6 +284,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             totalLpShares += lpShares;
             delete _pendingWithdrawals[user];
         }
+        _burn(address(this), totalLpShares);
         _processingBatchedWithdrawals[withdrawalId] = BatchedWithdrawal(totalLpShares, userList, lpSharesAmounts, 0);
 
         // 2/ send withdrawal by zero layer request to forwarder with total withdrawing ZLP amount
@@ -297,11 +300,11 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             "Gateway: must send enough value to cover messageFee"
         );
 
-        layerZeroEndpoint.send{value: messageFee}( // {value: messageFee} will be paid out of this contract!
+        layerZeroEndpoint.send{value: messageFee}(
             forwarderChainId, // destination chainId
-            abi.encodePacked(forwarderAddress), // destination address of PingPong contract
+            abi.encodePacked(forwarderAddress), // destination address
             payload, // abi.encode()'ed bytes
-            payable(address(this)), // (msg.sender will be this contract) refund address (LayerZero will refund any extra gas back to caller of send()
+            payable(_msgSender()),
             address(0x0), // future param
             adapterParams // v1 adapterParams, specify custom destination gas qty
         );
@@ -318,7 +321,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         bytes memory _payload
     ) external {
         require(
-            msg.sender == address(stargateRouter),
+            _msgSender() == address(stargateRouter),
             "Gateway: only stargate router can call sgReceive!"
         );
 
@@ -344,7 +347,6 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             address user = withdrawals.users[i];
             uint256 tokenAmount = (withdrawals.totalTokenAmount * lpShares) / withdrawals.totalLpShares;
             IERC20Metadata(token).safeTransfer(user, tokenAmount);
-            _burn(user, lpShares);
             emit Withdrawn(user, tokenAmount, lpShares);
         }
 
@@ -352,8 +354,16 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     }
 
     function removePendingWithdrawal() external {
-        delete _pendingWithdrawals[_msgSender()];
-        emit RemovedPendingWithdrawal(_msgSender());
+        address withdrawer = _msgSender();
+        if (_pendingWithdrawals[withdrawer] > 0) {
+            IERC20Metadata(address(this)).safeTransfer(
+                withdrawer,
+                _pendingWithdrawals[withdrawer]
+            );
+        }
+
+        delete _pendingWithdrawals[withdrawer];
+        emit RemovedPendingWithdrawal(withdrawer);
     }
 
     /**
