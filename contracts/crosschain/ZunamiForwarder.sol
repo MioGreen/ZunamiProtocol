@@ -72,7 +72,7 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         stargateRouter = IStargateRouter(_stargateRouter);
         layerZeroEndpoint = ILayerZeroEndpoint(_layerZeroEndpoint);
 
-        curveExchange = ICurvePool(_curveExchange); // Constants.CRV_3POOL_ADDRESS
+        curveExchange = ICurvePool(_curveExchange);
     }
 
     receive() external payable {}
@@ -102,12 +102,12 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
             "Forwarder: only stargate router can call sgReceive!"
         );
 
-        // 1/ receive stargate deposit in USDC or USDT
+        // 1/ receive stargate deposit in USDT
         require(_srcChainId == gatewayChainId, "Forwarder: wrong source chain id");
 
         (uint256 depositId) = abi.decode(payload, (uint256));
         require(_token == address(tokens[USDT_TOKEN_ID]), "Forwarder: wrong token address");
-        // 2/ create deposite in Zunami
+        // 2/ delegate deposit to Zunami
         uint256[3] memory amounts;
         amounts[uint256(USDT_TOKEN_ID)] = amountLD;
         IERC20Metadata(_token).safeApprove(address(zunami), amountLD);
@@ -116,26 +116,20 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         emit CreatedPendingDeposit(depositId, USDT_TOKEN_ID, amountLD);
     }
 
-    function completeBatchedDeposit(uint256 depositId, uint256 zlpTotalAmount)
+    function completeCrosschainDeposit(uint256 depositId, uint256 zlpTotalAmount)
     external
     payable
     onlyRole(OPERATOR_ROLE)
     {
-        // 0/ wait until receive ZLP tokens
+        // 0/ wait until receive ZLP tokens back
         require(IERC20Metadata(address(zunami)).balanceOf(address(this)) >= zlpTotalAmount, "Forwarder: not enough zlp");
-        // 1/ send layer zero message to gateway with ZLP amount
+        // 1/ send layer zero message to Gateway with ZLP amount
         bytes memory payload = abi.encode(depositId, zlpTotalAmount);
 
         // use adapterParams v1 to specify more gas for the destination
         bytes memory adapterParams = abi.encodePacked(uint16(1), uint256(50000));
 
-        // get the fees we need to pay to LayerZero for message delivery
-        (uint messageFee, ) = layerZeroEndpoint.estimateFees(gatewayChainId, address(this), payload, false, adapterParams);
-        require(
-            msg.value >= messageFee,
-            "Forwarder: must send enough value to cover messageFee"
-        );
-        layerZeroEndpoint.send{value: messageFee}(
+        layerZeroEndpoint.send{value: msg.value}(
             gatewayChainId, // destination chainId
             abi.encodePacked(gatewayAddress), // destination address
             payload, // abi.encode()'ed bytes
@@ -161,7 +155,7 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         // 1/ Receive request to withdrawal
         (uint256 withdrawalId, uint256 zlpAmount) = abi.decode(_payload, (uint256, uint256));
 
-        // 2/ Create withdrawal request in Zunami
+        // 2/ Delegate withdrawal request to Zunami
         uint256[POOL_ASSETS] memory tokenAmounts;
         IERC20Metadata(address(zunami)).safeApprove(address(zunami), zlpAmount);
         zunami.delegateWithdrawal(zlpAmount, tokenAmounts);
@@ -169,34 +163,33 @@ contract ZunamiForwarder is AccessControl, ILayerZeroReceiver, IStargateReceiver
         emit CreatedPendingWithdrawal(withdrawalId, zlpAmount);
     }
 
-    function completeBatchedWithdrawal(uint256 withdrawalId)
+    function completeCrosschainWithdrawal(uint256 withdrawalId)
     external
     payable
     onlyRole(OPERATOR_ROLE)
     {
-        // 0/ wait to receive stables from zunami
+        // 0/ wait to receive stables from Zunami
 
         // 1/ exchange DAI and USDC to USDT
         exchangeOtherTokenToUSDT(DAI_TOKEN_ID);
 
         exchangeOtherTokenToUSDT(USDC_TOKEN_ID);
 
-        // 2/ send USDT by start gate to gateway
+        // 2/ send USDT by startgate to gateway
         uint256 tokenTotalAmount = tokens[USDT_TOKEN_ID].balanceOf(address(this));
 
         tokens[USDT_TOKEN_ID].safeIncreaseAllowance(address(stargateRouter), tokenTotalAmount);
 
-        // the msg.value is the "fee" that Stargate needs to pay for the cross chain message
         stargateRouter.swap{value:msg.value}(
-            gatewayChainId,                             // LayerZero chainId
-            tokenPoolId,                                // source pool id
-            gatewayTokenPoolId,                         // dest pool id
-            payable(_msgSender()),                        // refund address. extra gas (if any) is returned to this address
-            tokenTotalAmount,                                 // quantity to swap
-            tokenTotalAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER,   // the min qty you would accept on the destination
-            IStargateRouter.lzTxObj(50000, 0, "0x"),   // 0 additional gasLimit increase, 0 airdrop, at 0x address
-            abi.encodePacked(gatewayAddress),           // the address to send the tokens to on the destination
-            abi.encode(withdrawalId, tokenTotalAmount)                    // bytes param, if you wish to send additional payload you can abi.encode() them here
+            gatewayChainId,                                     // LayerZero chainId
+            tokenPoolId,                                        // source pool id
+            gatewayTokenPoolId,                                 // dest pool id
+            payable(_msgSender()),                              // refund address. extra gas (if any) is returned to this address
+            tokenTotalAmount,                                   // quantity to swap
+            tokenTotalAmount * SG_FEE_REDUCER / SG_FEE_DIVIDER, // the min qty you would accept on the destination
+            IStargateRouter.lzTxObj(50000, 0, "0x"),            // 0 additional gasLimit increase, 0 airdrop, at 0x address
+            abi.encodePacked(gatewayAddress),                   // the address to send the tokens to on the destination
+            abi.encode(withdrawalId)                            // bytes param, if you wish to send additional payload you can abi.encode() them here
         );
 
         emit Withdrawn(withdrawalId, USDT_TOKEN_ID, tokenTotalAmount);

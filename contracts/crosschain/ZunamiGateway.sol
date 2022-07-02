@@ -16,14 +16,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
     bytes32 public constant OPERATOR_ROLE = keccak256('OPERATOR_ROLE');
 
-    struct BatchedDeposit {
+    struct CrosschainDeposit {
         uint256 totalTokenAmount;
         address[] users;
         uint256[] tokenAmounts;
         uint256 totalLpShares;
     }
 
-    struct BatchedWithdrawal {
+    struct CrosschainWithdrawal {
         uint256 totalLpShares;
         address[] users;
         uint256[] lpSharesAmounts;
@@ -47,14 +47,14 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
     uint256 public forwarderTokenPoolId;
 
     mapping(address => uint256) internal _pendingDeposits;
-    mapping(uint256 => BatchedDeposit) internal _processingBatchedDeposits;
+    mapping(uint256 => CrosschainDeposit) internal _processingCrosschainDeposits;
 
     mapping(address => uint256) internal _pendingWithdrawals;
-    mapping(uint256 => BatchedWithdrawal) internal _processingBatchedWithdrawals;
+    mapping(uint256 => CrosschainWithdrawal) internal _processingCrosschainWithdrawals;
 
     event CreatedPendingDeposit(address indexed depositor, uint256 amount);
-    event SentBatchedDepositRequest(uint256 depositId, uint256 totalTokenAmount);
-    event ReceivedBatchedDepositResponse(
+    event SentCrosschainDepositRequest(uint256 depositId, uint256 totalTokenAmount);
+    event ReceivedCrosschainDepositResponse(
         uint256 depositId,
         uint256 lpShares
     );
@@ -64,8 +64,8 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         address indexed withdrawer,
         uint256 lpShares
     );
-    event SentBatchedWithdrawalRequest(uint256 withdrawalId, uint256 totalLpShares);
-    event ReceivedBatchedWithdrawalResponse(
+    event SentCrosschainWithdrawalRequest(uint256 withdrawalId, uint256 totalLpShares);
+    event ReceivedCrosschainWithdrawalResponse(
         uint256 withdrawalId,
         uint256 tokenAmount
     );
@@ -122,12 +122,12 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         return _pendingWithdrawals[user];
     }
 
-    function processingBatchedDeposits(uint256 depositId) external view returns (BatchedDeposit memory) {
-        return _processingBatchedDeposits[depositId];
+    function processingCrosschainDeposits(uint256 depositId) external view returns (CrosschainDeposit memory) {
+        return _processingCrosschainDeposits[depositId];
     }
 
-    function processingBatchedWithdrawals(uint256 withdrawalId) external view returns (BatchedWithdrawal memory) {
-        return _processingBatchedWithdrawals[withdrawalId];
+    function processingCrosschainWithdrawals(uint256 withdrawalId) external view returns (CrosschainWithdrawal memory) {
+        return _processingCrosschainWithdrawals[withdrawalId];
     }
 
     function pause() external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -156,7 +156,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
      * @dev Zunami protocol owner complete all active pending deposits of users
      * @param userList - dev send array of users from pending to complete
      */
-    function sendBatchedDeposit(address[] memory userList)
+    function sendCrosschainDeposit(address[] memory userList)
     external
     payable
     onlyRole(OPERATOR_ROLE)
@@ -174,7 +174,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             totalTokenAmount += deposit;
             delete _pendingDeposits[user];
         }
-        _processingBatchedDeposits[depositId] = BatchedDeposit(totalTokenAmount, userList, tokenAmounts, 0);
+        _processingCrosschainDeposits[depositId] = CrosschainDeposit(totalTokenAmount, userList, tokenAmounts, 0);
 
         token.safeIncreaseAllowance(address(stargateRouter), totalTokenAmount);
 
@@ -192,7 +192,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             abi.encode(depositId)                   // bytes param, if you wish to send additional payload you can abi.encode() them here
         );
 
-        emit SentBatchedDepositRequest(depositId, totalTokenAmount);
+        emit SentCrosschainDepositRequest(depositId, totalTokenAmount);
     }
 
     // @notice LayerZero endpoint will invoke this function to deliver the message on the destination
@@ -211,17 +211,17 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         // 3/ receive ZLP amount on lzReceive method for sent deposits and mint GZLP to each depositer proportionaly deposits
         (uint256 depositId, uint256 totalLpShares) = abi.decode(_payload, (uint256, uint256));
-        BatchedDeposit storage deposits = _processingBatchedDeposits[depositId];
+        CrosschainDeposit storage deposits = _processingCrosschainDeposits[depositId];
         deposits.totalLpShares = totalLpShares;
 
-        emit ReceivedBatchedDepositResponse(depositId, totalLpShares);
+        emit ReceivedCrosschainDepositResponse(depositId, totalLpShares);
     }
 
-    function finalizeBatchedDeposit(uint256 depositId)
+    function finalizeCrosschainDeposit(uint256 depositId)
     external
     onlyRole(OPERATOR_ROLE)
     {
-        BatchedDeposit memory deposits = _processingBatchedDeposits[depositId];
+        CrosschainDeposit memory deposits = _processingCrosschainDeposits[depositId];
         require(deposits.totalLpShares > 0, "Gateway: callback wasn't received");
         for (uint256 i = 0; i < deposits.users.length; i++) {
             uint256 tokenAmount = deposits.tokenAmounts[i];
@@ -230,7 +230,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
             emit Deposited(deposits.users[i], tokenAmount, lpShares);
         }
-        delete _processingBatchedDeposits[depositId];
+        delete _processingCrosschainDeposits[depositId];
     }
 
     /**
@@ -263,7 +263,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         emit CreatedPendingWithdrawal(userAddr, lpShares);
     }
 
-    function sendBatchedWithdrawal(address[] memory userList)
+    function sendCrosschainWithdrawal(address[] memory userList)
         external
         payable
         onlyRole(OPERATOR_ROLE)
@@ -275,7 +275,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
         uint256 totalLpShares = 0;
         uint256[] memory lpSharesAmounts = new uint256[](userList.length);
-        // 1/ create batched withdrawal
+        // 1/ create crosschain withdrawal
         for (uint256 i = 0; i < userList.length; i++) {
             address user = userList[i];
             uint256 lpShares = _pendingWithdrawals[user];
@@ -285,7 +285,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             delete _pendingWithdrawals[user];
         }
         _burn(address(this), totalLpShares);
-        _processingBatchedWithdrawals[withdrawalId] = BatchedWithdrawal(totalLpShares, userList, lpSharesAmounts, 0);
+        _processingCrosschainWithdrawals[withdrawalId] = CrosschainWithdrawal(totalLpShares, userList, lpSharesAmounts, 0);
 
         // 2/ send withdrawal by zero layer request to forwarder with total withdrawing ZLP amount
         bytes memory payload = abi.encode(withdrawalId, totalLpShares);
@@ -293,14 +293,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         // use adapterParams v1 to specify more gas for the destination
         bytes memory adapterParams = abi.encodePacked(uint16(1), uint256(150000));
 
-        // get the fees we need to pay to LayerZero for message delivery
-        (uint messageFee, ) = layerZeroEndpoint.estimateFees(forwarderChainId, address(this), payload, false, adapterParams);
-        require(
-            msg.value >= messageFee,
-            "Gateway: must send enough value to cover messageFee"
-        );
-
-        layerZeroEndpoint.send{value: messageFee}(
+        layerZeroEndpoint.send{value: msg.value}(
             forwarderChainId, // destination chainId
             abi.encodePacked(forwarderAddress), // destination address
             payload, // abi.encode()'ed bytes
@@ -309,7 +302,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             adapterParams // v1 adapterParams, specify custom destination gas qty
         );
 
-        emit SentBatchedWithdrawalRequest(withdrawalId, totalLpShares);
+        emit SentCrosschainWithdrawalRequest(withdrawalId, totalLpShares);
     }
 
     function sgReceive(
@@ -326,21 +319,21 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
         );
 
         require(_srcChainId == forwarderChainId, "Gateway: wrong source chain id");
-//        require(_srcAddress == forwarderAddress, "Gateway: wrong source address");
+        //require(_srcAddress == forwarderAddress, "Gateway: wrong source address");
 
-        // 3/ receive USDC or USDT stables by star gate and transfer to customers
+        // 3/ receive USDT stables by star gate and transfer to customers
         // 4/ burn GZLP and remove cloned mapping
-        (uint256 withdrawalId, uint256 totalTokenAmount) = abi.decode(_payload, (uint256, uint256));
-        BatchedWithdrawal storage withdrawals = _processingBatchedWithdrawals[withdrawalId];
-        withdrawals.totalTokenAmount = totalTokenAmount;
-        emit ReceivedBatchedWithdrawalResponse(withdrawalId, totalTokenAmount);
+        (uint256 withdrawalId) = abi.decode(_payload, (uint256));
+        CrosschainWithdrawal storage withdrawals = _processingCrosschainWithdrawals[withdrawalId];
+        withdrawals.totalTokenAmount = _amountLD;
+        emit ReceivedCrosschainWithdrawalResponse(withdrawalId, _amountLD);
     }
 
-    function finalizeBatchedWithdrawal(uint256 withdrawalId)
+    function finalizeCrosschainWithdrawal(uint256 withdrawalId)
     external
     onlyRole(OPERATOR_ROLE)
     {
-        BatchedWithdrawal memory withdrawals = _processingBatchedWithdrawals[withdrawalId];
+        CrosschainWithdrawal memory withdrawals = _processingCrosschainWithdrawals[withdrawalId];
         require(withdrawals.totalTokenAmount > 0, "Gateway: callback wasn't received");
         for (uint256 i = 0; i < withdrawals.users.length; i++) {
             uint256 lpShares = withdrawals.lpSharesAmounts[i];
@@ -350,7 +343,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
             emit Withdrawn(user, tokenAmount, lpShares);
         }
 
-        delete _processingBatchedWithdrawals[withdrawalId];
+        delete _processingCrosschainWithdrawals[withdrawalId];
     }
 
     function removePendingWithdrawal() external {
@@ -368,7 +361,7 @@ contract ZunamiGateway is ERC20, Pausable, AccessControl, ILayerZeroReceiver, IS
 
     /**
      * @dev governance can withdraw all stuck funds in emergency case
-     * @param _token - IERC20Metadata token that should be fully withdraw from Zunami
+     * @param _token - IERC20Metadata token that should be fully withdraw from ZunamiGateway
      */
     function withdrawStuckToken(IERC20Metadata _token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         uint256 tokenBalance = _token.balanceOf(address(this));
