@@ -364,6 +364,7 @@ contract Zunami is ERC20, Pausable, AccessControl {
             }
 
             uint256 userDeposit = (totalDeposited * withdrawal.lpShares) / totalSupply();
+            _spendAllowance(user, address(this), withdrawal.lpShares);
             _burn(user, withdrawal.lpShares);
             _poolInfo[defaultWithdrawPid].lpShares -= withdrawal.lpShares;
             totalDeposited -= userDeposit;
@@ -469,6 +470,7 @@ contract Zunami is ERC20, Pausable, AccessControl {
             withdrawal = _pendingWithdrawals[user];
 
             uint256 userDeposit = (totalDeposited * withdrawal.lpShares) / totalSupply();
+            _spendAllowance(user, address(this), withdrawal.lpShares);
             _burn(user, withdrawal.lpShares);
             _poolInfo[defaultWithdrawPid].lpShares -= withdrawal.lpShares;
             totalDeposited -= userDeposit;
@@ -556,6 +558,7 @@ contract Zunami is ERC20, Pausable, AccessControl {
         );
 
         uint256 userDeposit = (totalDeposited * lpShares) / totalSupply();
+        _spendAllowance(userAddr, address(this), lpShares);
         _burn(userAddr, lpShares);
         _poolInfo[defaultWithdrawPid].lpShares -= lpShares;
 
