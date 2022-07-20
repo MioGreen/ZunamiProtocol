@@ -446,6 +446,7 @@ contract Zunami is ERC20, Pausable, AccessControl {
         uint128 tokenIndex,
         bool optimized
     ) internal {
+        _spendAllowance(user, address(this), lpShares);
         _burn(user, lpShares);
         _poolInfo[defaultWithdrawPid].lpShares -= lpShares;
         totalDeposited -= userDeposit;
